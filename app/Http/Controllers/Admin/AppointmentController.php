@@ -72,17 +72,23 @@ class AppointmentController extends Controller
         }
 
         $appointment->update([
-            'status'       => Appointment::STATUS_CONFIRMED,
+            'status' => Appointment::STATUS_CONFIRMED,
             'confirmed_at' => now(),
         ]);
 
         // Load doctor for notification
         $appointment->load('doctor');
 
-        // Send confirmation notification (queued)
-        $appointment->doctor->notify(new AppointmentConfirmed($appointment));
+        // Send confirmation notification (queued) — wrapped so mail config errors don't break confirm
+        try {
+            $appointment->doctor->notify(new AppointmentConfirmed($appointment));
+        } catch (\Throwable $e) {
+            // Notification failure is non-critical; log and continue
+            logger()->warning('AppointmentConfirmed notification failed: '.$e->getMessage());
+        }
 
-        return back()->with('success', "Appointment confirmed. Notification sent to {$appointment->patient_name}.");
+        return back()->with('success', "Appointment confirmed for {$appointment->patient_name}.");
+
     }
 
     public function cancel(Appointment $appointment): RedirectResponse
@@ -111,7 +117,7 @@ class AppointmentController extends Controller
     {
         $this->authorize('appointment.print');
 
-        $date    = $request->input('date', now()->toDateString());
+        $date = $request->input('date', now()->toDateString());
         $doctorId = $request->input('doctor_id');
 
         $query = Appointment::with('doctor.department')
@@ -123,7 +129,7 @@ class AppointmentController extends Controller
         }
 
         $appointments = $query->get();
-        $doctors      = Doctor::active()->select('id', 'name')->get();
+        $doctors = Doctor::active()->select('id', 'name')->get();
 
         return view('admin.appointments.daily-sheet', compact('appointments', 'doctors', 'date'));
     }
